@@ -1,0 +1,21 @@
+# Makefile para compatibilidade com a especificação da UFES/LabGrad
+# Ele automatiza a chamada do CMake e compila as versões mono/multiprocessador
+
+.PHONY: all monoprocessador multiprocessador clean
+
+all: monoprocessador
+
+monoprocessador:
+	@mkdir -p build
+	@cd build && cmake -DCMAKE_BUILD_TYPE=Release .. && make
+	@cp build/trabSO .
+	@echo "Mini-Kernel Monoprocessador compilado com sucesso como './trabSO'."
+
+multiprocessador:
+	@mkdir -p build
+	@cd build && cmake -DUSE_MULTIPROCESSOR=ON -DCMAKE_BUILD_TYPE=Release .. && make
+	@cp build/trabSO .
+	@echo "Mini-Kernel Multiprocessador compilado com sucesso como './trabSO'."
+
+clean:
+	rm -rf build trabSO log_execucao_minikernel.txt

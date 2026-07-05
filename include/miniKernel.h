@@ -7,20 +7,27 @@
 
 // Estrutura de Contexto Central para evitar variáveis globais soltas (Seção 2.7)
 typedef struct {
-    PCB *pcb_list;                  // Lista de todos os processos do sistema
     int process_count;              // Quantidade total de processos lidos
     SchedulerPolicy policy;         // Política (1 = FCFS, 2 = RR, 3 = Prioridade)
-    ReadyQueue ready_queue;         // Fila de prontos circular protegida
+    PCB *pcb_array;                // Array de processos
+    Queue ready_queue;              // Fila de processos prontos
     int generator_done;             // Sinaliza que todos os processos já foram criados/enfileirados
     
-    PCB *current_process;           // Processo atualmente em execução (Monoprocessador)
-    PCB *current_process_cpu2;      // Segundo processo em execução (Multiprocessador)
-    int quantum;                    // Quantum usado no Round Robin (500ms)
+    TCB *current_thread_cpu[2];    // Threads em execução em cada processador
+    int current_time_thread[2];       // Tempo atual da thread
+    int quantum;                   // Quantum usado no Round Robin (500ms)
 
     // Sincronização global do sistema (Seção 2.5)
     pthread_mutex_t kernel_mutex;   // Mutex global do Mini-Kernel
     pthread_cond_t scheduler_cv;    // scheduler_condition_variable (Escalonador dorme se fila vazia)
+
+    char log_file;
 } MiniKernel;
+
+typedef struct{
+    MiniKernel *kernel;
+    int cpu_id;
+} Processador;
 
 // Protótipos das funções que controlam o ciclo de vida das threads (Seção 2.3 e 2.4)
 

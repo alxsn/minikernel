@@ -1,0 +1,1 @@
+/usr/bin/cc -O3 -DNDEBUG CMakeFiles/trabSO.dir/src/main.c.o CMakeFiles/trabSO.dir/src/minikernel.c.o CMakeFiles/trabSO.dir/src/queue.c.o -o trabSO 

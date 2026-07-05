@@ -12,6 +12,7 @@ typedef enum {
 
 // Estados possíveis de um processo
 typedef enum {
+    STATE_NOT_ARRIVED,
     STATE_READY,
     STATE_RUNNING,
     STATE_FINISHED
@@ -26,16 +27,21 @@ typedef struct {
     int num_threads;                // Quantidade de threads do processo
     int start_time;                 // Tempo de chegada (ms relativo ao início)
     ProcessState state;             // READY, RUNNING, FINISHED - Precisa de Mutex!
+
+    TCB *tcb_array;                  //vetor com threads do processo
     
     pthread_mutex_t mutex;          // Mutex exclusivo do processo
     pthread_cond_t cv;              // Variável de condição para acordar as threads do processo
-    pthread_t *thread_ids;          // Vetor com os IDs das threads reais do POSIX
+    // pthread_t *thread_ids;          // Vetor com os IDs das threads reais do POSIX
 } PCB;
 
 // Estrutura TCB (Task Control Block) conforme especificação
 typedef struct {
-    PCB* pcb;                       // Ponteiro para o processo pai
-    int thread_index;               // Índice local da thread no processo (0 até num_threads-1)
+    // Herda a prioridade do processo
+    PCB* pcb;                       // Ponteiro para o processo pai            
+    // int tid;            // ID da thread (1, 2, 3...) (0 até num_threads-1)
+    int remaining_time; // Quanto tempo esta thread específica precisa rodar
+    ProcessState state;             // READY, RUNNING, FINISHED
 } TCB;
 
 #endif // TYPES_H

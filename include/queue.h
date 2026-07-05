@@ -14,13 +14,12 @@ typedef struct {
     QueueNode *head;
     QueueNode *tail;
     int size;
-    pthread_mutex_t mutex;
-} ReadyQueue;
+} Queue;
 
-void queue_init(ReadyQueue *q);
-void queue_push_back(ReadyQueue *q, PCB *pcb);
-PCB* queue_pop_front(ReadyQueue *q);
-PCB* queue_remove_highest_priority(ReadyQueue *q); // Utilizado na preempção por prioridade
-void queue_destroy(ReadyQueue *q);
+void queue_init(Queue *q);
+void queue_push_back(Queue *q, PCB *pcb);
+PCB* queue_pop_front(Queue *q);
+PCB* queue_remove_highest_priority(Queue *q); // Utilizado na preempção por prioridade
+void queue_destroy(Queue *q);
 
 #endif // QUEUE_H

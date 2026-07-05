@@ -1,3 +1,0 @@
-/mnt/c/Users/conta/Downloads/minikernel/build/CMakeFiles/trabSO.dir
-/mnt/c/Users/conta/Downloads/minikernel/build/CMakeFiles/edit_cache.dir
-/mnt/c/Users/conta/Downloads/minikernel/build/CMakeFiles/rebuild_cache.dir

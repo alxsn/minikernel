@@ -1,21 +1,40 @@
-# Makefile para compatibilidade com a especificação da UFES/LabGrad
-# Ele automatiza a chamada do CMake e compila as versões mono/multiprocessador
+# Variáveis de compilação
+CC = gcc
+CFLAGS = -Wall -Wextra -g -O2 -pthread -Iinclude
+
+# Nome do executável exigido pela especificação
+TARGET = trabSO
+
+# Diretórios do projeto
+SRC_DIR = src
+BUILD_DIR = build
+
+# Coleta os arquivos fonte e define os arquivos objeto dentro de build/
+SRCS = $(wildcard $(SRC_DIR)/*.c)
+OBJS = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRCS))
 
 .PHONY: all monoprocessador multiprocessador clean
 
+# Alvo padrão (Seção 4.3)
 all: monoprocessador
 
-monoprocessador:
-	@mkdir -p build
-	@cd build && cmake -DCMAKE_BUILD_TYPE=Release .. && make
-	@cp build/trabSO .
-	@echo "Mini-Kernel Monoprocessador compilado com sucesso como './trabSO'."
+monoprocessador: CFLAGS += -UVERSION_MULTIPROCESSOR
+monoprocessador: clean $(TARGET)
+	@echo "Mini-Kernel Monoprocessador compilado com sucesso como './$(TARGET)'."
 
-multiprocessador:
-	@mkdir -p build
-	@cd build && cmake -DUSE_MULTIPROCESSOR=ON -DCMAKE_BUILD_TYPE=Release .. && make
-	@cp build/trabSO .
-	@echo "Mini-Kernel Multiprocessador compilado com sucesso como './trabSO'."
+multiprocessador: CFLAGS += -DVERSION_MULTIPROCESSOR
+multiprocessador: clean $(TARGET)
+	@echo "Mini-Kernel Multiprocessador compilado com sucesso como './$(TARGET)'."
 
+# Linkagem do executável final na raiz do projeto
+$(TARGET): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS)
+
+# Regra de compilação dos objetos (cria a pasta build se ela não existir)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Limpeza completa e cirúrgica
 clean:
-	rm -rf build trabSO log_execucao_minikernel.txt
+	rm -rf $(BUILD_DIR) $(TARGET) log_execucao_minikernel.txt

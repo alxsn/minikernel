@@ -25,34 +25,66 @@ int main(int argc, char *argv[]) {
     kernel.current_thread_cpu[1] = NULL;
     kernel.log_file = "log_execucao_minikernel.txt";
 
+    // Valida a leitura da quantidade de processos
     if (fscanf(entry_file, "%d", &kernel.process_count) != 1) {
         fclose(entry_file);
         return EXIT_FAILURE;
     }
 
     kernel.pcb_array = (PCB*) malloc(kernel.process_count * sizeof(PCB));
+    if (!kernel.pcb_array) {
+        fclose(entry_file);
+        return EXIT_FAILURE;
+    }
 
+    // PASSO 1: Apenas lê os dados brutos do arquivo para o pcb_array
     for (int i = 0; i < kernel.process_count; i++) {
         kernel.pcb_array[i].pid = i + 1;
-        fscanf(entry_file, "%d", &kernel.pcb_array[i].process_len);
-        fscanf(entry_file, "%d", &kernel.pcb_array[i].priority);
-        fscanf(entry_file, "%d", &kernel.pcb_array[i].num_threads);
-        fscanf(entry_file, "%d", &kernel.pcb_array[i].start_time);
+        
+        if (fscanf(entry_file, "%d %d %d %d", 
+                   &kernel.pcb_array[i].process_len, 
+                   &kernel.pcb_array[i].priority, 
+                   &kernel.pcb_array[i].num_threads, 
+                   &kernel.pcb_array[i].start_time) != 4) {
+            fclose(entry_file);
+            free(kernel.pcb_array);
+            return EXIT_FAILURE;
+        }
         
         kernel.pcb_array[i].remaining_time = kernel.pcb_array[i].process_len;
         kernel.pcb_array[i].state = STATE_NOT_ARRIVED;
         
         pthread_mutex_init(&kernel.pcb_array[i].mutex, NULL);
         pthread_cond_init(&kernel.pcb_array[i].cv, NULL);
+        // Deixa a alocação do tcb_array pronta, mas sem configurar os ponteiros ainda
         kernel.pcb_array[i].tcb_array = (TCB*) malloc(kernel.pcb_array[i].num_threads * sizeof(TCB));
     }
 
+    // Valida a leitura da política de escalonamento
     int policy_code;
-    fscanf(entry_file, "%d", &policy_code);
+    if (fscanf(entry_file, "%d", &policy_code) != 1) {
+        for (int i = 0; i < kernel.process_count; i++) {
+            free(kernel.pcb_array[i].tcb_array);
+        }
+        free(kernel.pcb_array);
+        fclose(entry_file);
+        return EXIT_FAILURE;
+    }
     kernel.policy = (SchedulerPolicy)policy_code;
     fclose(entry_file);
 
-    // ALOCAÇÃO DINÂMICA NA HEAP PARA EVITAR CORRUPÇÃO DE PILHA
+    // PASSO 2: Organiza os processos por tempo de chegada ANTES de amarrar os ponteiros das threads
+    for (int i = 0; i < kernel.process_count - 1; i++) {
+        for (int j = 0; j < kernel.process_count - i - 1; j++) {
+            if (kernel.pcb_array[j].start_time > kernel.pcb_array[j+1].start_time) {
+                PCB temp = kernel.pcb_array[j];
+                kernel.pcb_array[j] = kernel.pcb_array[j+1];
+                kernel.pcb_array[j+1] = temp;
+            }
+        }
+    }
+
+    // ALOCAÇÃO DINÂMICA NA HEAP PARA EVITAR CORRUPÇÃO DE PILHA nas threads das CPUs
     Processador *cpu0 = (Processador*) malloc(sizeof(Processador));
     cpu0->cpu_id = 0;
     cpu0->kernel = &kernel;
@@ -71,18 +103,7 @@ int main(int argc, char *argv[]) {
         pthread_create(&scheduler_cpu1, NULL, scheduler_monoprocessador, cpu0);
     #endif
 
-    // --- SUA LÓGICA: Organiza os processos em ordem crescente por tempo de chegada ---
-    for (int i = 0; i < kernel.process_count - 1; i++) {
-        for (int j = 0; j < kernel.process_count - i - 1; j++) {
-            if (kernel.pcb_array[j].start_time > kernel.pcb_array[j+1].start_time) {
-                PCB temp = kernel.pcb_array[j];
-                kernel.pcb_array[j] = kernel.pcb_array[j+1];
-                kernel.pcb_array[j+1] = temp;
-            }
-        }
-    }
-
-    // --- SUA LÓGICA: Controla a chegada real por usleep ---
+    // --- LÓGICA DE CHEGADA DOS PROCESSOS ---
     int tempo_atual_real = 0;
 
     for (int i = 0; i < kernel.process_count; i++) {
@@ -96,11 +117,11 @@ int main(int argc, char *argv[]) {
 
         pthread_mutex_lock(&kernel.kernel_mutex);
 
-        // Prepara o processo e suas threads para rodar
+        // PASSO 3: Agora sim, com o array estático no lugar definitivo, mapeamos as TCBs com segurança
         kernel.pcb_array[i].state = STATE_READY;
         for (int j = 0; j < kernel.pcb_array[i].num_threads; j++) {
             kernel.pcb_array[i].tcb_array[j].state = STATE_READY;
-            kernel.pcb_array[i].tcb_array[j].pcb = &kernel.pcb_array[i];
+            kernel.pcb_array[i].tcb_array[j].pcb = &kernel.pcb_array[i]; // Aponta para a posição de memória real e final
             kernel.pcb_array[i].tcb_array[j].remaining_time = 
                 kernel.pcb_array[i].process_len / kernel.pcb_array[i].num_threads;
         }
@@ -131,9 +152,11 @@ int main(int argc, char *argv[]) {
         fclose(log_file);
     }
 
-    // Limpeza absoluta da memória
+    // Limpeza absoluta da memória (Valgrind approved)
     queue_destroy(&kernel.ready_queue);
     for (int i = 0; i < kernel.process_count; i++) {
+        pthread_mutex_destroy(&kernel.pcb_array[i].mutex);
+        pthread_cond_destroy(&kernel.pcb_array[i].cv);
         free(kernel.pcb_array[i].tcb_array);
     }
     free(kernel.pcb_array);

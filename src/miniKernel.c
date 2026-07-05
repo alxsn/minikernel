@@ -242,23 +242,28 @@ void* scheduler_multiprocessador(void *arg) {
         int sleeping_time;
 
         // Calculo do tempo que a thread "rodará"
-        if(kernel->policy == POLICY_FCFS || kernel->policy == POLICY_PRIORITY){
+        if (kernel->policy == POLICY_FCFS || kernel->policy == POLICY_PRIORITY) {
             sleeping_time = thread->remaining_time;
-        }else{// POLICY_RR
-            sleeping_time = (thread->remaining_time > quantum) ? quantum : thread->remaining_time;
+        } else { // POLICY_RR
+            sleeping_time = kernel->quantum;
         }
 
-        // "Rodando"
+        // "Rodando" pelo tempo estipulado (garante o uso do quantum cheio no RR)
         usleep(sleeping_time);
 
         pthread_mutex_lock(&kernel->kernel_mutex);
 
-        thread->remaining_time = thread->remaining_time - sleeping_time;
+        // Subtrai o tempo real que ela precisava para não gerar número negativo
+        if (kernel->policy == POLICY_RR && thread->remaining_time < sleeping_time) {
+            thread->remaining_time = 0;
+        } else {
+            thread->remaining_time = thread->remaining_time - sleeping_time;
+        }
 
         // Verifica finalização da thread
         if (thread->remaining_time <= 0) {
             thread->state = STATE_FINISHED;
-        }else{// Fica disponivel para rodar novamente
+        } else { // Fica disponivel para rodar novamente
             thread->state = STATE_READY;
         }
 

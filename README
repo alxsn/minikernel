@@ -1,0 +1,65 @@
+Simulador de Mini-Kernel e Escalonador de Processos
+Este projeto consiste na implementação de um simulador de sistemas operacionais focado no escalonamento de processos multiprogramados de CPU e suas respectivas threads, suportando arquiteturas monoprocessadas e multiprocessadas (SMP).
+
+O sistema implementa três políticas de escalonamento clássicas: First-Come, First-Served (FCFS), Round Robin (RR) com interrupção por timer (quantum), e Prioridade.
+
+Decisões de Modelagem e Arquitetura
+O simulador foi desenhado para espelhar o comportamento interno de um kernel real de forma assíncrona e Thread-Safe:
+
+Estruturas de Controle (PCB e TCB):
+
+Cada processo é representado por um PCB (Process Control Block), contendo metadados como PID, tempo de chegada, prioridade, número de threads e estado.
+
+As divisões internas de execução de um processo utilizam TCB (Thread Control Block), dividindo o tempo de execução total (process_len) igualmente entre as threads filhas.
+
+Evitando Corrupção de Memória e Deadlocks (Mapeamento Estável):
+
+Ordenação Prévia: O array contendo as estruturas dos PCBs (pcb_array) é alocado dinamicamente e ordenado por tempo de chegada imediatamente após a leitura do arquivo de entrada.
+
+Ponteiros Seguros: As referências internas das threads (tcb_array[j].pcb = &kernel.pcb_array[i]) só são amarradas no momento exato em que o processo chega ao sistema. Isso impede erros críticos de apontamento causados pelo deslocamento de blocos na ordenação (uma das principais causas de Segmentation Fault em ambientes concorrentes).
+
+Sincronização de Threads (Thread-Safety):
+
+O acesso à fila global de processos prontos (ready_queue) e aos slots de CPU é sincronizado de maneira estrita através de uma variável mutex central (kernel_mutex).
+
+Para eliminar o desperdício de CPU por Busy Waiting (espera ocupada), os processadores bloqueiam-se de forma eficiente via pthread_cond_wait usando a variável de condição scheduler_cv quando não há processos elegíveis na fila. Ao entrarem novos processos, o despachador emite um pthread_cond_broadcast.
+
+Semântica do Quantum (Round Robin):
+
+Conforme especificação restritiva do projeto, o simulador garante que uma thread rodando em Round Robin consuma o quantum cheio (500ms) no processador por meio de usleep(kernel->quantum), mesmo que o seu tempo restante de CPU seja menor que o limite.
+
+Para evitar erros lógicos de tempo de execução negativo (abaixo de zero na Heap), o escalonador monitora o remaining_time de forma limpa, zerando-o de forma segura quando a thread é finalizada.
+
+Balanceamento de Carga e Roubo de Trabalho (Multiprocessamento):
+
+Na versão multiprocessadora, caso a CPU sinta que sua fila de prontos global está vazia, ela executa uma técnica inspirada em Work Stealing, inspecionando se o processo em execução na CPU vizinha possui outras threads prontas em seu tcb_array, otimizando o paralelismo real da máquina.
+
+Compilação e Uso
+O projeto é modularizado e utiliza um Makefile configurado para isolar as saídas de compilação na pasta temporária build/, gerando o binário limpo trabSO na raiz.
+
+Compilar para Monoprocessador:
+make monoprocessador
+
+Compilar para Multiprocessador:
+make multiprocessador
+
+Executar a Simulação:
+./trabSO arquivo_de_entrada.txt
+
+Limpar os Artefatos de Compilação e Logs:
+make clean
+
+Validação e Gerenciamento de Memória (Valgrind)
+O ciclo de desenvolvimento incorporou testes agressivos de vazamento de memória e concorrência através do Valgrind Memcheck, assegurando uma entrega robusta e sem falhas latentes.
+
+Para reproduzir os testes de sanidade e verificar a ausência de vazamento de ponteiros (Memory Leaks) ou condições de corrida (Race Conditions), utilize o comando:
+
+valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./trabSO arquivo_de_entrada.txt
+
+Resultado Esperado do Relatório:
+
+HEAP SUMMARY: in use at exit: 0 bytes in 0 blocks (Indica que todos os mallocs de PCBs, TCBs e estruturas de Processadores foram devidamente liberados com free).
+
+ERROR SUMMARY: 0 errors from 0 contexts (Indica ausência total de acessos de leitura/escrita inválidos ou variáveis não inicializadas).
+
+Nenhuma primitiva goto foi utilizada no projeto.

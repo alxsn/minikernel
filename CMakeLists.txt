@@ -19,5 +19,12 @@ file(GLOB SOURCES "src/*.c")
 # Define o executável com o nome exigido pela especificação: trabSO
 add_executable(trabSO ${SOURCES})
 
+# =========================================================================
+# CORREÇÃO: Mapeia o parâmetro -DUSE_MULTIPROCESSOR=ON para a macro do C
+# =========================================================================
+if(USE_MULTIPROCESSOR)
+    target_compile_definitions(trabSO PRIVATE VERSION_MULTIPROCESSOR)
+endif()
+
 # Linka com a biblioteca de threads do sistema
 target_link_libraries(trabSO PRIVATE Threads::Threads)

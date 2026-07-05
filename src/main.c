@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
         fscanf(entry_file, "%d", &kernel.pcb_array[i].num_threads);
         fscanf(entry_file, "%d", &kernel.pcb_array[i].start_time);
         
-        kernel.pcb_array[i].remaining_time = kernel.pcb_list[i].process_len;
+        kernel.pcb_array[i].remaining_time = kernel.pcb_array[i].process_len;
         kernel.pcb_array[i].state = STATE_NOT_ARRIVED;
         
         pthread_mutex_init(&kernel.pcb_array[i].mutex, NULL);
@@ -52,82 +52,71 @@ int main(int argc, char *argv[]) {
     kernel.policy = (SchedulerPolicy)policy_code;
     fclose(entry_file);
 
-    Processador cpu0;
-    cpu0.cpu_id = 0;
-    cpu0.kernel = &kernel;
+    // ALOCAÇÃO DINÂMICA NA HEAP PARA EVITAR CORRUPÇÃO DE PILHA
+    Processador *cpu0 = (Processador*) malloc(sizeof(Processador));
+    cpu0->cpu_id = 0;
+    cpu0->kernel = &kernel;
 
-    Processador cpu1;
-    cpu1.cpu_id = 1;
-    cpu1.kernel = &kernel;
+    Processador *cpu1 = (Processador*) malloc(sizeof(Processador));
+    cpu1->cpu_id = 1;
+    cpu1->kernel = &kernel;
 
-    // Identifica qual versão compilar baseado na flag do Makefile (-DVERSION_MONOPROCESSOR)
     pthread_t scheduler_cpu1;
     
     #ifdef VERSION_MULTIPROCESSOR
         pthread_t scheduler_cpu2;
-        // Cria duas threads escalonadoras simulando 2 CPUs (45% da nota!)
-        pthread_create(&scheduler_cpu1, NULL, scheduler_multiprocessador, &cpu0);
-        pthread_create(&scheduler_cpu2, NULL, scheduler_multiprocessador, &cpu1);
+        pthread_create(&scheduler_cpu1, NULL, scheduler_multiprocessador, cpu0);
+        pthread_create(&scheduler_cpu2, NULL, scheduler_multiprocessador, cpu1);
     #else
-        // Cria apenas uma thread escalonadora (Monoprocessador)
-        pthread_create(&scheduler_cpu1, NULL, scheduler_monoprocessador, &cpu0);
+        pthread_create(&scheduler_cpu1, NULL, scheduler_monoprocessador, cpu0);
     #endif
 
-    // --- TODO: Lógica de Simulação de Tempo Real (Seção 2.2) ---
-    // Aguardar o start_time de cada processo e dar o disparo das suas respectivas threads.
-
-    // --- Lógica de Simulação de Tempo Real (Seção 2.2) ---
-    kernel.tempo_sistema = 0;
-
-    while (1) {
-        pthread_mutex_lock(&kernel.kernel_mutex);
-
-        
-
-        int todos_chegaram = 1;
-
-        for (int i = 0; i < kernel.process_count; i++) {
-            // Se o processo ainda não chegou, monitoramos o tempo dele
-            if (kernel.pcb_array[i].state == STATE_NOT_ARRIVED) {
-                todos_chegaram = 0; // Se tem alguém que não chegou, o gerador não acabou
-
-                // Se o relógio do sistema alcançou o tempo de início do processo
-                if (kernel.tempo_sistema >= kernel.pcb_array[i].start_time) {
-                    kernel.pcb_array[i].state = STATE_READY;
-
-                    // Coloca todas as threads dele em modo READY para as CPUs poderem capturar
-                    for (int j = 0; j < kernel.pcb_array[i].num_threads; j++) {
-                        kernel.pcb_array[i].tcb_array[j].state = STATE_READY;
-                        kernel.pcb_array[i].tcb_array[j].pcb = &kernel.pcb_array[i];
-                        // Cada thread ganha uma fração do tempo total do processo
-                        kernel.pcb_array[i].tcb_array[j].remaining_time = 
-                            kernel.pcb_array[i].process_len / kernel.pcb_array[i].num_threads;
-                    }
-
-                    // Enfileira o processo na lista de prontos
-                    queue_push_back(&kernel.ready_queue, &kernel.pcb_array[i]);
-
-                    // Acorda os escalonadores que estavam dormindo esperando processos
-                    pthread_cond_broadcast(&kernel.scheduler_cv);
-                }
+    // --- SUA LÓGICA: Organiza os processos em ordem crescente por tempo de chegada ---
+    for (int i = 0; i < kernel.process_count - 1; i++) {
+        for (int j = 0; j < kernel.process_count - i - 1; j++) {
+            if (kernel.pcb_array[j].start_time > kernel.pcb_array[j+1].start_time) {
+                PCB temp = kernel.pcb_array[j];
+                kernel.pcb_array[j] = kernel.pcb_array[j+1];
+                kernel.pcb_array[j+1] = temp;
             }
         }
+    }
 
-        // Se todos os processos do arquivo de entrada já entraram na fila
-        if (todos_chegaram) {
-            kernel.generator_done = 1;
-            // Acorda as CPUs uma última vez caso estejam dormindo, para elas saberem que podem terminar
-            pthread_cond_broadcast(&kernel.scheduler_cv);
-            pthread_mutex_unlock(&kernel.kernel_mutex);
-            break; // Sai do loop do relógio na main
+    // --- SUA LÓGICA: Controla a chegada real por usleep ---
+    int tempo_atual_real = 0;
+
+    for (int i = 0; i < kernel.process_count; i++) {
+        int tempo_espera = kernel.pcb_array[i].start_time - tempo_atual_real;
+        
+        if (tempo_espera > 0) {
+            // Dorme a diferença de tempo necessária até o processo chegar
+            usleep(tempo_espera); 
+            tempo_atual_real = kernel.pcb_array[i].start_time;
         }
 
-        pthread_mutex_unlock(&kernel.kernel_mutex);
-
         pthread_mutex_lock(&kernel.kernel_mutex);
-        kernel.tempo_sistema += 10;
+
+        // Prepara o processo e suas threads para rodar
+        kernel.pcb_array[i].state = STATE_READY;
+        for (int j = 0; j < kernel.pcb_array[i].num_threads; j++) {
+            kernel.pcb_array[i].tcb_array[j].state = STATE_READY;
+            kernel.pcb_array[i].tcb_array[j].pcb = &kernel.pcb_array[i];
+            kernel.pcb_array[i].tcb_array[j].remaining_time = 
+                kernel.pcb_array[i].process_len / kernel.pcb_array[i].num_threads;
+        }
+
+        // Coloca na fila de prontos e sinaliza os processadores que estão em cond_wait
+        queue_push_back(&kernel.ready_queue, &kernel.pcb_array[i]);
+        pthread_cond_broadcast(&kernel.scheduler_cv);
+
         pthread_mutex_unlock(&kernel.kernel_mutex);
     }
+
+    // Informa que todos os processos do arquivo de entrada já foram despachados
+    pthread_mutex_lock(&kernel.kernel_mutex);
+    kernel.generator_done = 1;
+    pthread_cond_broadcast(&kernel.scheduler_cv); // Acorda CPUs ociosas caso estejam esperando
+    pthread_mutex_unlock(&kernel.kernel_mutex);
 
     // Aguarda o término do(s) escalonador(es)
     pthread_join(scheduler_cpu1, NULL);
@@ -135,15 +124,14 @@ int main(int argc, char *argv[]) {
         pthread_join(scheduler_cpu2, NULL);
     #endif
 
-    // Escrita do Log conforme Seção 4.2
+    // Escrita do Log final conforme Seção 4.2
     FILE *log_file = fopen(kernel.log_file, "a");
     if (log_file) {
-        // finalização da escrita
         fprintf(log_file, "Escalonador terminou execução de todos processos\n");
         fclose(log_file);
     }
 
-    // Limpeza absoluta da memória (Proteção total contra descontos do Valgrind)
+    // Limpeza absoluta da memória
     queue_destroy(&kernel.ready_queue);
     for (int i = 0; i < kernel.process_count; i++) {
         free(kernel.pcb_array[i].tcb_array);
@@ -152,6 +140,8 @@ int main(int argc, char *argv[]) {
     pthread_mutex_destroy(&kernel.kernel_mutex);
     pthread_cond_destroy(&kernel.scheduler_cv);
 
+    free(cpu0);
+    free(cpu1);
+
     return EXIT_SUCCESS;
 }
-

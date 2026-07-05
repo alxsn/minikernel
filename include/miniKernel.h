@@ -14,14 +14,14 @@ typedef struct {
     int generator_done;             // Sinaliza que todos os processos já foram criados/enfileirados
     
     TCB *current_thread_cpu[2];    // Threads em execução em cada processador
-    int current_time_thread[2];       // Tempo atual da thread
     int quantum;                   // Quantum usado no Round Robin (500ms)
 
     // Sincronização global do sistema (Seção 2.5)
     pthread_mutex_t kernel_mutex;   // Mutex global do Mini-Kernel
     pthread_cond_t scheduler_cv;    // scheduler_condition_variable (Escalonador dorme se fila vazia)
 
-    char log_file;
+    char *log_file;
+    int quantum_time_step;
 } MiniKernel;
 
 typedef struct{
@@ -30,9 +30,6 @@ typedef struct{
 } Processador;
 
 // Protótipos das funções que controlam o ciclo de vida das threads (Seção 2.3 e 2.4)
-
-// Pipeline executado por cada thread associada a um processo
-void* thread_pipeline(void *arg);
 
 // Thread escalonadora para o modo Monoprocessador
 void* scheduler_monoprocessador(void *arg);

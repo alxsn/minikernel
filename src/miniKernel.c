@@ -60,7 +60,7 @@ void* scheduler_monoprocessador(void *arg) {
             thread->state = STATE_RUNNING;
 
             int quantum = kernel->quantum;
-            const char* policy_name = (kernel->policy == 1) ? "FCFS" : (kernel->policy == 2) ? "RR" : "PRIO";
+            const char* policy_name = (kernel->policy == 1) ? "FCFS" : (kernel->policy == 2) ? "RR" : "PRIORITY";
 
             // Só grava o log de execução se for a primeira thread do processo OU se for Round Robin
             if (kernel->policy == 2 || passou_primeira_vez == 0) {

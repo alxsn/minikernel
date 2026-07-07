@@ -25,6 +25,12 @@ int main(int argc, char *argv[]) {
     kernel.current_thread_cpu[1] = NULL;
     kernel.log_file = "log_execucao_minikernel.txt";
 
+    // Cria arquivo zerado
+    FILE *log_file = fopen(kernel.log_file, "w");
+    if (log_file) {
+        fclose(log_file);
+    }
+
     // Valida a leitura da quantidade de processos
     if (fscanf(entry_file, "%d", &kernel.process_count) != 1) {
         fclose(entry_file);
@@ -146,7 +152,7 @@ int main(int argc, char *argv[]) {
     #endif
 
     // Escrita do Log final conforme Seção 4.2
-    FILE *log_file = fopen(kernel.log_file, "a");
+    log_file = fopen(kernel.log_file, "a");
     if (log_file) {
         fprintf(log_file, "Escalonador terminou execução de todos processos\n");
         fclose(log_file);

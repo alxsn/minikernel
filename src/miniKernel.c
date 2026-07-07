@@ -1,4 +1,4 @@
-#include "minikernel.h"
+#include "miniKernel.h"
 #include "stdlib.h"
 #include "stdio.h"
 #include "unistd.h"

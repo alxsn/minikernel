@@ -3,7 +3,7 @@
 #include <pthread.h>
 #include <sys/time.h>
 #include <unistd.h>
-#include "minikernel.h"
+#include "miniKernel.h"
 
 int main(int argc, char *argv[]) {
     if (argc < 2) return EXIT_FAILURE;

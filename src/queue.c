@@ -58,63 +58,41 @@ PCB* queue_pop_front(Queue *q){
     return pcb;    
 }
 
-PCB* queue_remove_highest_priority(Queue *q){
-    QueueNode *highest_priority_node, *current_node, *previous_node, *previous_highest_priority_node;
-    PCB *pcb;
+PCB* queue_remove_highest_priority(Queue *q) {
+    if (q == NULL || q->size == 0) return NULL;
 
-    if(q->size == 0){
-        return NULL;
-    }
-    else if(q->size == 1){
-        current_node = q->head;
-        q->head = NULL;
-        q->tail = NULL;
-        q->size--;
-
-        pcb = current_node->pcb;
-        free(current_node);
-        return pcb;
-    }
+    QueueNode *current = q->head;
+    QueueNode *prev = NULL;
     
-    // q->size >= 2
-    current_node = q->head;
-    highest_priority_node = current_node;
-    previous_highest_priority_node = NULL;
-    for(int i = 0; i < q->size - 1; i++){
-        if(i==0){// primeira passagem
-            previous_node = highest_priority_node;
-            if(highest_priority_node->pcb->priority > current_node->next->pcb->priority){
-                previous_highest_priority_node = highest_priority_node;
-                highest_priority_node = current_node->next;
-            }
-            current_node = current_node->next;
+    QueueNode *highest = q->head;
+    QueueNode *highest_prev = NULL;
+
+    // 1. Localiza o nó de maior prioridade (menor valor numérico)
+    while (current != NULL) {
+        if (current->pcb->priority < highest->pcb->priority) {
+            highest = current;
+            highest_prev = prev;
         }
-        else{// segunda passagem em diante
-            previous_node = previous_node->next;
-            if(highest_priority_node->pcb->priority > current_node->next->pcb->priority){
-                previous_highest_priority_node = previous_node;
-                highest_priority_node = current_node->next;
-            }
-            current_node = current_node->next;
-        }
+        prev = current;
+        current = current->next;
     }
 
-    // head tem maior prioridade
-    if(highest_priority_node == q->head){
+    // 2. Remove o nó encontrado ajustando os ponteiros da fila
+    if (highest == q->head) {
         q->head = q->head->next;
+        if (q->head == NULL) {
+            q->tail = NULL;
+        }
+    } else if (highest == q->tail) {
+        highest_prev->next = NULL;
+        q->tail = highest_prev;
+    } else {
+        highest_prev->next = highest->next;
     }
-    else if(highest_priority_node == q->tail){// tail tem maior prioridade
-        previous_highest_priority_node->next = NULL;
-        q->tail = previous_highest_priority_node;
-    }
-    else{// alguem que não é o head nem o tail tem maior prioridade
-        previous_highest_priority_node->next = highest_priority_node->next;
-    }
-    
+
     q->size--;
-    
-    pcb = highest_priority_node->pcb;
-    free(highest_priority_node);
+    PCB *pcb = highest->pcb;
+    free(highest);
     return pcb;
 }
 

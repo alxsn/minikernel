@@ -8,8 +8,6 @@ void* scheduler_monoprocessador(void *arg) {
     MiniKernel *kernel = proc->kernel;
     int cpu_id = 0; 
 
-    printf("[MINIKERNEL] Inicializado Processador %d (Mono) com sucesso.\n", cpu_id);
-
     while (1) {
         pthread_mutex_lock(&kernel->kernel_mutex);
 
@@ -25,7 +23,6 @@ void* scheduler_monoprocessador(void *arg) {
             }
 
             if (processo != NULL) {
-                // Pega a primeira thread pronta deste processo
                 for (int i = 0; i < processo->num_threads; i++) {
                     if (processo->tcb_array[i].state == STATE_READY) {
                         thread = &processo->tcb_array[i];
@@ -49,31 +46,39 @@ void* scheduler_monoprocessador(void *arg) {
             continue; 
         }
 
-        // Controle para printar a execução do processo apenas uma vez no FCFS/PRIO
         int passou_primeira_vez = 0;
+        int quantum = kernel->quantum;
+        const char* policy_name = (kernel->policy == 1) ? "FCFS" : (kernel->policy == 2) ? "RR" : "PRIORITY";
 
-        // Executa todas as threads deste processo sequencialmente se for FCFS/PRIO
+        // Laço de execução: Se for FCFS, roda todas as threads seguidas. 
+        // Se for RR ou PRIORITY, o loop roda apenas uma vez (graças ao break no final)
         while (thread != NULL) {
             
             // Registra a thread no slot da CPU 0
             kernel->current_thread_cpu[cpu_id] = thread;
             thread->state = STATE_RUNNING;
 
-            int quantum = kernel->quantum;
-            const char* policy_name = (kernel->policy == 1) ? "FCFS" : (kernel->policy == 2) ? "RR" : "PRIORITY";
-
-            // Só grava o log de execução se for a primeira thread do processo OU se for Round Robin
-            if (kernel->policy == 2 || passou_primeira_vez == 0) {
+            // Controle estrito de Log
+            if (kernel->policy == POLICY_RR) { 
                 FILE *log_file = fopen(kernel->log_file, "a");
                 if (log_file) {
-                    if (kernel->policy == 2) { 
-                        fprintf(log_file, "[%s] Executando processo PID %d com quantum %dms\n", policy_name, processo->pid, quantum);
-                    } else {
-                        fprintf(log_file, "[%s] Executando processo PID %d\n", policy_name, processo->pid);
-                    }
+                    fprintf(log_file, "[%s] Executando processo PID %d com quantum %dms\n", policy_name, processo->pid, quantum);
                     fclose(log_file);
                 }
-                passou_primeira_vez = 1; // Garante que não printará nas próximas threads do mesmo processo (FCFS/PRIO)
+            } else if (kernel->policy == POLICY_PRIORITY) {
+                FILE *log_file = fopen(kernel->log_file, "a");
+                if (log_file) {
+                    fprintf(log_file, "[%s] Executando processo PID %d prioridade %d\n", policy_name, processo->pid, processo->priority);
+                    fclose(log_file);
+                }
+            } else if (kernel->policy == POLICY_FCFS && passou_primeira_vez == 0) {
+                // FCFS printa uma única vez por processo inteiro
+                FILE *log_file = fopen(kernel->log_file, "a");
+                if (log_file) {
+                    fprintf(log_file, "[%s] Executando processo PID %d\n", policy_name, processo->pid);
+                    fclose(log_file);
+                }
+                passou_primeira_vez = 1;
             }
 
             pthread_mutex_unlock(&kernel->kernel_mutex);
@@ -98,7 +103,7 @@ void* scheduler_monoprocessador(void *arg) {
                 thread->state = STATE_READY;
             }
 
-            // Limpa o slot para a próxima avaliação
+            // Limpa o slot da CPU
             kernel->current_thread_cpu[cpu_id] = NULL;
 
             // ----- Avaliação do Estado do Processo -----
@@ -118,12 +123,12 @@ void* scheduler_monoprocessador(void *arg) {
                     fprintf(log_file, "[%s] Processo PID %d finalizado\n", policy_name, processo->pid);
                     fclose(log_file);
                 }
-                thread = NULL; // Quebra o laço interno deste processo
+                thread = NULL; // Termina o laço interno
             } 
-            // Se ainda restam threads prontas
-            else if (n_threads_running == 0 && n_threads_ready > 0) {
-                if (kernel->policy == POLICY_FCFS || kernel->policy == POLICY_PRIORITY) {
-                    // FCFS/PRIO: Busca imediatamente a próxima thread PRONTA do próprio processo
+            // Se ainda restam threads prontas neste processo
+            else if (n_threads_ready > 0) {
+                if (kernel->policy == POLICY_FCFS) {
+                    // FCFS: Pega imediatamente a próxima thread PRONTA do mesmo processo sem soltar a CPU
                     thread = NULL;
                     for (int i = 0; i < processo->num_threads; i++) {
                         if (processo->tcb_array[i].state == STATE_READY) {
@@ -132,9 +137,9 @@ void* scheduler_monoprocessador(void *arg) {
                         }
                     }
                 } else {
-                    // Round Robin: Devolve o processo para o fim da fila e cede o processador
+                    // RR e PRIORITY: Devolvem o processo à fila global e liberam a CPU
                     queue_push_back(&kernel->ready_queue, processo);
-                    thread = NULL; // Quebra o laço para pegar o próximo da fila global
+                    thread = NULL; // Quebra o laço interno para reavaliar no while(1)
                 }
             } else {
                 thread = NULL;
@@ -152,13 +157,10 @@ void* scheduler_monoprocessador(void *arg) {
 
 //escalonador multiprocessador
 void* scheduler_multiprocessador(void *arg) {
-
     Processador *proc = (Processador*) arg;
     MiniKernel *kernel = proc->kernel;
     int cpu_id = proc->cpu_id;          
     int outra_cpu = 1 - cpu_id;         
-
-    printf("[MINIKERNEL] Inicializado Processador %d com sucesso.\n", cpu_id);
 
     while (1) {
         pthread_mutex_lock(&kernel->kernel_mutex);
@@ -166,7 +168,7 @@ void* scheduler_multiprocessador(void *arg) {
         PCB *processo = NULL;
         TCB *thread = NULL;
 
-        // STEP 1: Olha a fila. Tem? Se sim, pega.
+        // 1. OLHA A FILA GLOBAL: Tem processo? Pega.
         if (kernel->ready_queue.size > 0) {
             if (kernel->policy == POLICY_PRIORITY) {
                 processo = queue_remove_highest_priority(&kernel->ready_queue);
@@ -175,9 +177,8 @@ void* scheduler_multiprocessador(void *arg) {
             }
 
             if (processo != NULL) {
-                // Pega a thread que ainda não rodou
-                for(int i = 0; i < processo->num_threads; i++){
-                    if(processo->tcb_array[i].state == STATE_READY){
+                for (int i = 0; i < processo->num_threads; i++) {
+                    if (processo->tcb_array[i].state == STATE_READY) {
                         thread = &processo->tcb_array[i];
                         break;
                     }
@@ -185,14 +186,12 @@ void* scheduler_multiprocessador(void *arg) {
             }
         }
 
-        // STEP 2: Se não, olha o processo associado a thread do outro processador.
-        // Tem thread sobrando nele? Se sim, pega.
+        // 2. NÃO TEM NA FILA: Olha o outro processador e vê se tem thread READY para roubar (Work Stealing)
         if (processo == NULL && kernel->current_thread_cpu[outra_cpu] != NULL) {
             PCB *processo_vizinho = kernel->current_thread_cpu[outra_cpu]->pcb;
             if (processo_vizinho != NULL) {
-                // Tem thread sobrando nele? Se sim, pega.
-                for(int i = 0; i < processo_vizinho->num_threads; i++){
-                    if(processo_vizinho->tcb_array[i].state == STATE_READY){
+                for (int i = 0; i < processo_vizinho->num_threads; i++) {
+                    if (processo_vizinho->tcb_array[i].state == STATE_READY) {
                         processo = processo_vizinho;
                         thread = &processo_vizinho->tcb_array[i];
                         break;
@@ -201,36 +200,37 @@ void* scheduler_multiprocessador(void *arg) {
             }
         }
 
-        // Se a CPU está ociosa
+        // 3. NÃO TEM EM LUGAR NENHUM: Dorme (ou encerra se tudo acabou)
         if (processo == NULL || thread == NULL) {
-            // STEP 3: Só termina se o gerador acabou, a fila está zerada E nenhuma CPU está executando threads pendentes
             if (kernel->generator_done && kernel->ready_queue.size == 0 &&
                 kernel->current_thread_cpu[0] == NULL && kernel->current_thread_cpu[1] == NULL) {
                 
-                pthread_cond_broadcast(&kernel->scheduler_cv); // Garante acordar a outra CPU para finalizar também
+                pthread_cond_broadcast(&kernel->scheduler_cv); 
                 pthread_mutex_unlock(&kernel->kernel_mutex);
-                break; // Fim da simulação para esta CPU
+                break; 
             }
 
-            // STEP 4: Se ainda há trabalho sendo feito por outra CPU, espera uma notificação
             pthread_cond_wait(&kernel->scheduler_cv, &kernel->kernel_mutex);
             pthread_mutex_unlock(&kernel->kernel_mutex);
             continue; 
         }
 
-        // 5. Ocupa com a thread o slot deste processador no Kernel
+        // Aloca o slot da CPU e altera o estado da thread antes de liberar o mutex
         kernel->current_thread_cpu[cpu_id] = thread;
         thread->state = STATE_RUNNING;
 
         int quantum = kernel->quantum;
         const char* policy_name = (kernel->policy == 1) ? "FCFS" : (kernel->policy == 2) ? "RR" : "PRIO";
 
-        // Escrita do Log modificada para abarcar a string do quantum caso seja Round Robin
+        // --- Escrita Direta do Log ---
         FILE *log_file = fopen(kernel->log_file, "a");
         if (log_file) {
-            if (kernel->policy == 2) { // POLICY_RR
+            if (kernel->policy == 2) { // RR
                 fprintf(log_file, "[%s] Executando processo PID %d com quantum %dms // processador %d\n", policy_name, processo->pid, quantum, cpu_id);
-            } else {
+            } else if (kernel->policy == 3) { // PRIORITY
+                fprintf(log_file, "[%s] Executando processo PID %d prioridade %d // processador %d\n", policy_name, processo->pid, processo->priority, cpu_id);
+            } else if (kernel->policy == 1) { // FCFS
+                // Print plano: pegou a thread para rodar no FCFS, gera o log da CPU correspondente
                 fprintf(log_file, "[%s] Executando processo PID %d // processador %d\n", policy_name, processo->pid, cpu_id);
             }
             fclose(log_file);
@@ -238,61 +238,51 @@ void* scheduler_multiprocessador(void *arg) {
 
         pthread_mutex_unlock(&kernel->kernel_mutex);
 
-        // --- Simulação da Execução da Thread do Processo ---
+        // --- Simulação da Execução da Thread ---
         int sleeping_time;
-
-        // Calculo do tempo que a thread "rodará"
         if (kernel->policy == POLICY_FCFS || kernel->policy == POLICY_PRIORITY) {
             sleeping_time = thread->remaining_time;
-        } else { // POLICY_RR
-            sleeping_time = kernel->quantum;
+        } else { 
+            sleeping_time = (thread->remaining_time > quantum) ? quantum : thread->remaining_time;
         }
 
-        // "Rodando" pelo tempo estipulado (garante o uso do quantum cheio no RR)
         usleep(sleeping_time);
 
         pthread_mutex_lock(&kernel->kernel_mutex);
 
-        // Subtrai o tempo real que ela precisava para não gerar número negativo
-        if (kernel->policy == POLICY_RR && thread->remaining_time < sleeping_time) {
-            thread->remaining_time = 0;
-        } else {
-            thread->remaining_time = thread->remaining_time - sleeping_time;
-        }
+        thread->remaining_time = thread->remaining_time - sleeping_time;
 
-        // Verifica finalização da thread
         if (thread->remaining_time <= 0) {
             thread->state = STATE_FINISHED;
-        } else { // Fica disponivel para rodar novamente
+        } else { 
             thread->state = STATE_READY;
         }
 
-        // ----- Estado do processo -------
+        // Libera o slot da CPU
+        kernel->current_thread_cpu[cpu_id] = NULL;
+
+        // ----- Avaliação de Término e Retorno à Fila -----
         int n_threads_ready = 0, n_threads_running = 0, n_threads_finished = 0;
-        
-        for(int i = 0; i < processo->num_threads; i++){
-            if(processo->tcb_array[i].state == STATE_READY) n_threads_ready += 1;
-            if(processo->tcb_array[i].state == STATE_RUNNING) n_threads_running += 1;
-            if(processo->tcb_array[i].state == STATE_FINISHED) n_threads_finished += 1;
+        for (int i = 0; i < processo->num_threads; i++) {
+            if (processo->tcb_array[i].state == STATE_READY) n_threads_ready += 1;
+            if (processo->tcb_array[i].state == STATE_RUNNING) n_threads_running += 1;
+            if (processo->tcb_array[i].state == STATE_FINISHED) n_threads_finished += 1;
         }
 
-        if(n_threads_running == 0 && n_threads_ready > 0){// Volta pra fila de prontos
-            queue_push_back(&kernel->ready_queue, processo);
-            pthread_cond_broadcast(&kernel->scheduler_cv);
-        }
-        else if(n_threads_finished == processo->num_threads){// Processo terminou
+        if (n_threads_finished == processo->num_threads) {
             processo->state = STATE_FINISHED;
 
-            // Escrita do Log conforme Seção 4.2 (Usando estritamente log_file)
-            log_file = fopen(kernel->log_file, "a");
+            FILE *log_file = fopen(kernel->log_file, "a");
             if (log_file) {
                 fprintf(log_file, "[%s] Processo PID %d finalizado\n", policy_name, processo->pid);
                 fclose(log_file);
             }
         }
+        // Se ainda restam threads prontas e NENHUMA outra CPU está tocando esse processo atualmente
+        else if (n_threads_ready > 0 && n_threads_running == 0) {
+            queue_push_back(&kernel->ready_queue, processo);
+        }
         
-        // 6. Desaloca o slot do processador antes do próximo ciclo
-        kernel->current_thread_cpu[cpu_id] = NULL;
         pthread_cond_broadcast(&kernel->scheduler_cv);
         pthread_mutex_unlock(&kernel->kernel_mutex);
     }
